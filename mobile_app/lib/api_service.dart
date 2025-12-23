@@ -2,7 +2,9 @@ import 'package:dio/dio.dart';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 
 class ApiService {
-  final String baseUrl = "http://192.168.229.27:5000/api";
+  //final String baseUrl = "http://192.168.229.27:4000/api";
+  // 10.0.2.2 là địa chỉ IP đặc biệt để máy ảo Android nhìn thấy máy tính của bạn
+static const String baseUrl = "http://10.0.2.2:4000/api";
   final Dio _dio = Dio();
   final _storage = const FlutterSecureStorage();
 
