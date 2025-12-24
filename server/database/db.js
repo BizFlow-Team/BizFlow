@@ -25,9 +25,9 @@ const database = new Client({
     password: process.env.PGPASSWORD,
     port: process.env.PGPORT || 5432,
     // Tắt hoàn toàn SSL khi ở môi trường phát triển
-    ssl: process.env.NODE_ENV === 'production' 
-        ? { rejectUnauthorized: false, require: true } 
-        : { require: true}
+    // ssl: process.env.NODE_ENV === 'production' 
+    //     ? { rejectUnauthorized: false, require: true } 
+    //     : { require: true}
 });
 
 try {
