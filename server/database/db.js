@@ -3,7 +3,7 @@ import { config } from 'dotenv';
 import path from 'path';
 import { fileURLToPath } from 'url';
 
-const { Client } = pkg;
+const { Pool } = pkg;
 
 // Thiết lập đường dẫn tuyệt đối đến file config.env
 const __filename = fileURLToPath(import.meta.url);
@@ -18,7 +18,7 @@ console.log("DB_PASS:", process.env.PGPASSWORD ? "Đã có" : "Trống");
 console.log("NODE_ENV:", process.env.NODE_ENV || "Trống");
 console.log("-------------------------------");
 
-const database = new Client({
+const database = new Pool({
     host: process.env.PGHOST,
     database: process.env.PGDATABASE,
     user: process.env.PGUSER,
@@ -31,8 +31,9 @@ const database = new Client({
 });
 
 try {
-    await database.connect();
+    const client = await database.connect();
     console.log('Database connected successfully');
+    client.release();
 } catch (error) {
     console.error('Database connection error:', error.message);
     process.exit(1);
