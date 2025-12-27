@@ -1,5 +1,6 @@
 // BizFlow/server/controllers/ProductController.js
 import db from '../database/db.js';
+import { checkPlanLimit } from '../utils/planLimiter.js';
 
 export const getAllProducts = async (req, res) => {
   try {
@@ -47,6 +48,19 @@ export const createProduct = async (req, res) => {
   // 1. Thêm code và unit vào destructuring
   const { name, category, price, stock, images, code, unit } = req.body;
   const owner_id = req.user.userId;
+
+  const canCreate = await checkPlanLimit(owner_id, 'product');
+    if (!canCreate) {
+        return res.status(403).json({ 
+            success: false, 
+            message: 'Bạn đã đạt giới hạn số lượng sản phẩm của gói hiện tại. Vui lòng nâng cấp gói!' 
+        });
+    }
+
+    let imageToSave = null;
+    if (images && images.trim() !== '') {
+        imageToSave = JSON.stringify(images);
+    }
 
   try {
     let imageToSave = null;

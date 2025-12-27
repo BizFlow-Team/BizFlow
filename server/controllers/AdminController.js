@@ -4,8 +4,9 @@ import bcrypt from 'bcryptjs';
 // 1. Lấy danh sách tất cả các Owner để quản lý
 export const getAllOwners = async (req, res) => {
     try {
+        // [QUAN TRỌNG] Thêm u.plan_id vào dòng SELECT bên dưới
         const query = `
-            SELECT u.id, u.full_name, u.phone_number, u.is_active, u.created_at 
+            SELECT u.id, u.full_name, u.phone_number, u.is_active, u.created_at, u.plan_id 
             FROM users u
             JOIN role r ON u.role_id = r.id
             WHERE r.role_name = 'OWNER'
@@ -14,6 +15,7 @@ export const getAllOwners = async (req, res) => {
         const result = await database.query(query);
         res.status(200).json(result.rows);
     } catch (error) {
+        console.error("Get All Owners Error:", error);
         res.status(500).json({ message: "Lỗi khi lấy danh sách Owner" });
     }
 };
@@ -162,6 +164,39 @@ export const updateOwner = async (req, res) => {
     } catch (error) {
         console.error("Update Owner Error:", error);
         res.status(500).json({ message: "Lỗi server khi cập nhật Owner" });
+    }
+};
+
+export const deleteOwner = async (req, res) => {
+    const { id } = req.params;
+
+    try {
+        // Kiểm tra xem user có tồn tại và đúng là OWNER không (tránh xóa nhầm ADMIN)
+        const checkQuery = `
+            SELECT u.id, r.role_name 
+            FROM users u
+            JOIN role r ON u.role_id = r.id
+            WHERE u.id = $1
+        `;
+        const checkResult = await database.query(checkQuery, [id]);
+
+        if (checkResult.rows.length === 0) {
+            return res.status(404).json({ message: "Người dùng không tồn tại" });
+        }
+
+        if (checkResult.rows[0].role_name === 'ADMIN') {
+            return res.status(403).json({ message: "Không thể xóa tài khoản Admin tại đây" });
+        }
+
+        // Thực hiện xóa
+        const deleteQuery = 'DELETE FROM users WHERE id = $1 RETURNING id';
+        await database.query(deleteQuery, [id]);
+
+        res.status(200).json({ message: "Đã xóa tài khoản chủ cửa hàng thành công" });
+
+    } catch (error) {
+        console.error("Delete Owner Error:", error);
+        res.status(500).json({ message: "Lỗi server khi xóa tài khoản" });
     }
 };
 
@@ -438,5 +473,49 @@ export const updateSystemConfig = async (req, res) => {
     } catch (error) {
         console.error("Update Config Error:", error);
         res.status(500).json({ message: "Lỗi khi lưu cấu hình" });
+    }
+};
+
+export const changeOwnerPlan = async (req, res) => {
+    const { ownerId, planId } = req.body;
+
+    console.log("Change Plan Request:", req.body); // <--- Thêm dòng này để debug
+
+    try {
+        // Kiểm tra kỹ hơn: chỉ báo lỗi nếu planId là null hoặc undefined (cho phép số 0 nếu DB bạn dùng ID 0, nhưng thường là từ 1)
+        if (!ownerId || planId === undefined || planId === null) {
+            return res.status(400).json({ 
+                message: "Thiếu thông tin Owner hoặc Plan",
+                received: req.body 
+            });
+        }
+        
+        // Chặn nếu planId = 0 hoặc rỗng (nếu gói dịch vụ bắt đầu từ ID 1)
+        if (Number(planId) <= 0) {
+             return res.status(400).json({ message: "Vui lòng chọn một gói dịch vụ hợp lệ" });
+        }
+        // 2. Cập nhật gói trong DB
+        // Lưu ý: Cần ép kiểu planId về số nguyên nếu DB để cột id là Serial/Int
+        const query = `
+            UPDATE users 
+            SET plan_id = $1, updated_at = NOW()
+            WHERE id = $2
+            RETURNING id, full_name, plan_id
+        `;
+        
+        const result = await database.query(query, [parseInt(planId), ownerId]);
+
+        if (result.rowCount === 0) {
+            return res.status(404).json({ message: "Không tìm thấy User này" });
+        }
+
+        res.status(200).json({ 
+            message: "Cập nhật gói thành công", 
+            data: result.rows[0] 
+        });
+
+    } catch (error) {
+        console.error("Change Plan Error:", error);
+        res.status(500).json({ message: "Lỗi server khi đổi gói" });
     }
 };

@@ -8,8 +8,10 @@ const router = express.Router();
 // Routes Quản lý Owner
 router.get('/owners', verifyToken, isAdmin, AdminController.getAllOwners);
 router.post('/owners', verifyToken, isAdmin, AdminController.createOwner);
+router.put('/owners/plan', verifyToken, isAdmin, AdminController.changeOwnerPlan);
 router.put('/owners/status', verifyToken, isAdmin, AdminController.toggleOwnerStatus);
 router.put('/owners/:id', verifyToken, isAdmin, AdminController.updateOwner);
+router.delete('/owners/:id', verifyToken, isAdmin, AdminController.deleteOwner);
 
 // Routes Quản lý Gói dịch vụ
 router.get('/plans', verifyToken, isAdmin, AdminController.getSubscriptionPlans); 

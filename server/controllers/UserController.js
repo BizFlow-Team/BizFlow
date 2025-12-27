@@ -1,5 +1,6 @@
 import { generateToken } from "../utils/JwtToken.js";
 import database from '../database/db.js';
+import { checkPlanLimit } from '../utils/planLimiter.js';
 import bcrypt from 'bcryptjs';
 
 export const signup = async (req, res) => {
@@ -19,6 +20,16 @@ export const signup = async (req, res) => {
         if (!regex.test(phone_number)){
             return res.status(400).json({ message: 'Invalid phone number format' });
         };
+
+        // Nếu có owner_id, nghĩa là đang tạo nhân viên cho Owner đó
+        if (owner_id) {
+            const canCreate = await checkPlanLimit(owner_id, 'employee');
+            if (!canCreate) {
+                return res.status(403).json({ 
+                    message: 'Chủ cửa hàng đã đạt giới hạn số lượng nhân viên. Vui lòng nâng cấp gói!' 
+                });
+            }
+        }
 
         // Check duplicate phone number
         const checkUser = await database.query(
