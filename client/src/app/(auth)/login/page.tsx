@@ -45,7 +45,7 @@ export default function LoginPage() {
     localStorage.setItem('user', JSON.stringify(data));
 
     // Điều hướng
-    if (roleName === 'ADMIN') router.push('/admin/dashboard');
+    if (roleName === 'ADMIN') router.push('/admin');
     else if (roleName === 'OWNER') router.push('/dashboard');
     else router.push('/pos');
 
