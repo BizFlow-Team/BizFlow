@@ -27,7 +27,7 @@ const database = new Pool({
     // Tắt hoàn toàn SSL khi ở môi trường phát triển
      ssl: process.env.NODE_ENV === 'production' 
          ? { rejectUnauthorized: false, require: true } 
-         : { require: true}
+         : { require: true},
     max: 10,
     idleTimeoutMillis: 30000,
     connectionTimeoutMillis: 5000,
