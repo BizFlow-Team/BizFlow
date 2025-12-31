@@ -3,16 +3,34 @@ import bcrypt from 'bcryptjs';
 
 // 1. Lấy danh sách tất cả các Owner để quản lý
 export const getAllOwners = async (req, res) => {
+    const { status } = req.query;
     try {
-        // [QUAN TRỌNG] Thêm u.plan_id vào dòng SELECT bên dưới
-        const query = `
-            SELECT u.id, u.full_name, u.phone_number, u.is_active, u.created_at, u.plan_id 
+        // Query sử dụng LEFT JOIN với subquery để lấy lý do mới nhất
+        let query = `
+            SELECT 
+                u.id, u.full_name, u.phone_number, u.status, u.created_at, u.shop_name, u.plan_id,
+                ua.reason as rejection_reason
             FROM users u
+            LEFT JOIN (
+                SELECT DISTINCT ON (user_id) user_id, reason, created_at
+                FROM user_approvals
+                WHERE action = 'REJECTED'
+                ORDER BY user_id, created_at DESC
+            ) ua ON u.id = ua.user_id
             JOIN role r ON u.role_id = r.id
             WHERE r.role_name = 'OWNER'
-            ORDER BY u.created_at DESC
         `;
-        const result = await database.query(query);
+        const values = [];
+
+        // Nếu có truyền status, thêm điều kiện lọc vào câu query
+        if (status && status !== 'ALL') {
+            query += ` AND u.status = $1`;
+            values.push(status);
+        }
+
+        query += ` ORDER BY u.created_at DESC`;
+        
+        const result = await database.query(query, values);
         res.status(200).json(result.rows);
     } catch (error) {
         console.error("Get All Owners Error:", error);
@@ -20,17 +38,44 @@ export const getAllOwners = async (req, res) => {
     }
 };
 
-// 2. Kích hoạt hoặc Khóa tài khoản Owner (Sử dụng trường is_active trong bảng Users)
+// 2. Duyệt, Kích hoạt hoặc Khóa tài khoản Owner
 export const toggleOwnerStatus = async (req, res) => {
-    const { ownerId, status } = req.body; // status là boolean
+    const { ownerId, status, reason } = req.body;  
+    const adminId = req.user.id;
+
+    const client = await database.connect();
+    
     try {
-        await database.query(
-            'UPDATE users SET is_active = $1 WHERE id = $2',
-            [status, ownerId]
-        );
-        res.status(200).json({ message: "Cập nhật trạng thái thành công" });
+        await client.query('BEGIN');
+        const updateUserQuery = `
+            UPDATE users SET status = $1, updated_at = NOW() 
+            WHERE id = $2 RETURNING id, full_name, status
+        `;
+        const userResult = await client.query(updateUserQuery, [status, ownerId]);
+
+        if (userResult.rowCount === 0) {
+            return res.status(404).json({ message: "Không tìm thấy tài khoản" });
+        }
+
+        const insertLogQuery = `
+            INSERT INTO user_approvals (user_id, admin_id, action, reason)
+            VALUES ($1, $2, $3, $4)
+        `;
+        // Ghi lại lý do nếu có (đặc biệt quan trọng cho REJECTED)
+        await client.query(insertLogQuery, [ownerId, adminId, status, reason || null]);
+
+        await client.query('COMMIT');
+
+        res.status(200).json({ 
+            message: "Cập nhật trạng thái thành công", 
+            data: userResult.rows[0] 
+        });
     } catch (error) {
+        await client.query('ROLLBACK');
+        console.error("Update Status Error:", error);
         res.status(500).json({ message: "Lỗi khi cập nhật trạng thái" });
+    } finally {
+        client.release();
     }
 };
 
@@ -51,7 +96,7 @@ export const createPlan = async (req, res) => {
 
 // 4. Admin tạo tài khoản Owner mới
 export const createOwner = async (req, res) => {
-    const { full_name, phone_number, password } = req.body;
+    const { full_name, phone_number, password, shop_name } = req.body;
 
     try {
         // 1. Validate cơ bản
@@ -80,11 +125,11 @@ export const createOwner = async (req, res) => {
 
         // 5. Tạo user mới
         const query = `
-            INSERT INTO users (full_name, phone_number, password, role_id, is_active)
-            VALUES ($1, $2, $3, $4, true)
-            RETURNING id, full_name, phone_number, created_at
+            INSERT INTO users (full_name, phone_number, password, role_id, status, shop_name)
+            VALUES ($1, $2, $3, $4, 'ACTIVE', $5)
+            RETURNING id, full_name, phone_number, shop_name, created_at
         `;
-        const newUser = await database.query(query, [full_name, phone_number, hashedPassword, ownerRoleId]);
+        const newUser = await database.query(query, [full_name, phone_number, hashedPassword, ownerRoleId, shop_name]);
 
         res.status(201).json({
             message: "Tạo tài khoản Owner thành công",
@@ -218,26 +263,22 @@ export const getSubscriptionPlans = async (req, res) => {
     }
 };
 
-// [MỚI] 7. Lấy thống kê Dashboard (Thay thế dữ liệu giả)
+// [MỚI] 7. Lấy thống kê Dashboard
 export const getSystemStats = async (req, res) => {
     try {
-        // Đếm số lượng Owner
         const ownerCountQuery = `
-            SELECT COUNT(*) as total 
-            FROM users u
+            SELECT COUNT(*) as total FROM users u
             JOIN role r ON u.role_id = r.id
             WHERE r.role_name = 'OWNER'
         `;
         
-        // Đếm số lượng Owner đang hoạt động
+        // Chỉ đếm những Owner có status là ACTIVE
         const activeOwnerQuery = `
-            SELECT COUNT(*) as total 
-            FROM users u
+            SELECT COUNT(*) as total FROM users u
             JOIN role r ON u.role_id = r.id
-            WHERE r.role_name = 'OWNER' AND u.is_active = true
+            WHERE r.role_name = 'OWNER' AND u.status = 'ACTIVE'
         `;
 
-        // Đếm số gói dịch vụ
         const planCountQuery = `SELECT COUNT(*) as total FROM subscription_plan`;
 
         const [ownerRes, activeRes, planRes] = await Promise.all([
@@ -250,7 +291,6 @@ export const getSystemStats = async (req, res) => {
             totalOwners: parseInt(ownerRes.rows[0].total),
             activeOwners: parseInt(activeRes.rows[0].total),
             totalPlans: parseInt(planRes.rows[0].total),
-            // Tạm thời doanh thu hệ thống = 0 vì chưa có bảng Transaction
             totalRevenue: 0 
         });
     } catch (error) {
