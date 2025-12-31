@@ -11,6 +11,7 @@ import { createDraftOrderTable } from '../models/DraftOrder.js';
 import { createAuditLogTable } from '../models/AuditLog.js';
 import { createSubscriptionPlanTable } from '../models/SubscriptionPlan.js';
 import { createSystemConfigTable } from '../models/SystemConfig.js';
+import { createUserApprovalTable } from '../models/UserApproval.js';
 
 export const createTables = async () => {
     try {
@@ -27,6 +28,7 @@ export const createTables = async () => {
         await createAuditLogTable();
         await createSubscriptionPlanTable();
         await createSystemConfigTable();
+        await createUserApprovalTable();
         console.log('All tables created successfully.');
     } catch (error) {
         console.error('Error creating tables:', error); 

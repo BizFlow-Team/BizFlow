@@ -155,6 +155,15 @@ export default function LoginPage() {
                 </>
               )}
             </button>
+
+            <div className="mt-6 text-center">
+              <p className="text-sm text-gray-600">
+                Bạn là chủ cửa hàng mới?{' '}
+                <Link href="/register" className="text-blue-600 font-semibold hover:underline">
+                  Đăng ký Owner
+                </Link>
+              </p>
+            </div>
           </form>
 
         </div>

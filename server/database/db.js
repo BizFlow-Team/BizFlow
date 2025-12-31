@@ -33,6 +33,10 @@ const database = new Pool({
     connectionTimeoutMillis: 5000,
 });
 
+database.on('error', (err) => {
+    console.error('PostgreSQL Pool Error:', err.message);
+});
+
 try {
     const client = await database.connect();
     console.log('Database connected successfully');
