@@ -17,6 +17,13 @@ const clearAllCookies = () => {
 };
 
 export const authService = {
+  
+  // Đăng ký Owner
+  registerOwner: async (registerData: any) => {
+    const response = await api.post('/user/sign-up', registerData);
+    return response.data;
+  },
+
   // 1. Đổi tham số thành phone_number
   login: async (phone_number: string, password: string) => {
     // 2. Gửi key là 'phone_number' (không phải email)

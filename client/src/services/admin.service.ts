@@ -14,8 +14,10 @@ export const adminService = {
         return response.data;
     },
 
-    getOwners: async () => {
-        const response = await api.get('/admin/owners');
+    getOwners: async (status?: string) => {
+        const response = await api.get('/admin/owners', {
+            params: { status }
+        });
         return response.data;
     }
 };

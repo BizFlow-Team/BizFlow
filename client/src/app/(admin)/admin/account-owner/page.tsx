@@ -13,6 +13,8 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+
 // Import components
 import AccountOwnerTable, { Owner } from '@/components/admin/AccountOwnerTable';
 import OwnerForm from '@/components/admin/OwnerForm';
@@ -93,7 +95,46 @@ export default function AccountOwnerPage() {
       </div>
 
       {/* Bảng dữ liệu - Truyền hàm onEdit xuống */}
-      <AccountOwnerTable onEdit={handleOpenEdit} />
+      <Tabs defaultValue="ALL" className="w-full">
+    
+        <TabsList className="bg-slate-100 p-1 rounded-lg w-fit">
+          <TabsTrigger value="ALL" className="px-6 data-[state=active]:bg-white data-[state=active]:text-blue-600 font-semibold">
+            Tất cả
+          </TabsTrigger>
+          <TabsTrigger value="PENDING" className="px-6 data-[state=active]:bg-white data-[state=active]:text-amber-600 font-semibold">
+            Chờ duyệt
+          </TabsTrigger>
+          <TabsTrigger value="ACTIVE" className="px-6 data-[state=active]:bg-white data-[state=active]:text-green-600 font-semibold">
+            Hoạt động
+          </TabsTrigger>
+          <TabsTrigger value="LOCKED" className="px-6 data-[state=active]:bg-white data-[state=active]:text-red-600 font-semibold">
+            Đã khóa
+          </TabsTrigger>
+          <TabsTrigger value="REJECTED" className="px-6 data-[state=active]:bg-white data-[state=active]:text-slate-600 font-semibold">
+            Từ chối
+          </TabsTrigger>
+        </TabsList>
+
+        <TabsContent value="ALL" className="mt-4 outline-none">
+          <AccountOwnerTable onEdit={handleOpenEdit} statusFilter="ALL" />
+        </TabsContent>
+
+        <TabsContent value="PENDING" className="mt-4 outline-none">
+          <AccountOwnerTable onEdit={handleOpenEdit} statusFilter="PENDING" />
+        </TabsContent>
+        
+        <TabsContent value="ACTIVE" className="mt-4 outline-none">
+          <AccountOwnerTable onEdit={handleOpenEdit} statusFilter="ACTIVE" />
+        </TabsContent>
+
+        <TabsContent value="LOCKED" className="mt-4 outline-none">
+          <AccountOwnerTable onEdit={handleOpenEdit} statusFilter="LOCKED" />
+        </TabsContent>
+
+        <TabsContent value="REJECTED" className="mt-4 outline-none">
+          <AccountOwnerTable onEdit={handleOpenEdit} statusFilter="REJECTED" />
+        </TabsContent>
+      </Tabs>
 
       {/* Dialog Form */}
       <Dialog open={isDialogOpen} onOpenChange={setIsDialogOpen}>

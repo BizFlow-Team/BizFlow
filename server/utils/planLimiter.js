@@ -29,7 +29,7 @@ export const checkPlanLimit = async (ownerId, resourceType) => {
 
         // 2. Kiểm tra giới hạn SẢN PHẨM
         if (resourceType === 'product') {
-            const limit = limits.max_products || 0;
+            limit = limits.max_products || 0; // Gán trực tiếp vào biến limit bên ngoài
             
             // Đếm số sản phẩm hiện tại của Owner
             const countRes = await database.query(
@@ -41,7 +41,7 @@ export const checkPlanLimit = async (ownerId, resourceType) => {
 
         // 3. Kiểm tra giới hạn NHÂN VIÊN
         else if (resourceType === 'employee') {
-            limit = features.max_employees || 0;
+            limit = limits.max_employees || 0; // Sửa: Dùng biến 'limits' đã khai báo
 
             // Đếm số nhân viên (User có owner_id trỏ về user này)
             const countRes = await database.query(
@@ -57,7 +57,7 @@ export const checkPlanLimit = async (ownerId, resourceType) => {
         }
 
         // 4. So sánh
-        // Nếu limit < 0 (ví dụ -1) nghĩa là không giới hạn
+        // Nếu limit < 0 (ví dụ -1) nghĩa là không giới hạn (Unlimited)
         if (limit < 0) return true;
 
         console.log(`Check Limit [${resourceType}]: Current ${currentCount} / Limit ${limit}`);
@@ -66,6 +66,6 @@ export const checkPlanLimit = async (ownerId, resourceType) => {
 
     } catch (error) {
         console.error("Check Plan Limit Error:", error);
-        return false; // Có lỗi thì chặn cho an toàn
+        return false;// Có lỗi thì chặn cho an toàn
     }
 };

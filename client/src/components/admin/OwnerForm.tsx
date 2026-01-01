@@ -17,6 +17,7 @@ export default function OwnerForm({ initialData, onSubmit, isLoading, onCancel }
   const [formData, setFormData] = useState({
     full_name: '',
     phone_number: '',
+    shop_name: initialData?.shop_name || '',
     password: '',
   });
 
@@ -27,10 +28,11 @@ export default function OwnerForm({ initialData, onSubmit, isLoading, onCancel }
         full_name: initialData.full_name,
         phone_number: initialData.phone_number,
         password: '', // Mật khẩu không hiển thị lại, chỉ nhập nếu muốn đổi
+        shop_name: initialData?.shop_name,
       });
     } else {
         // Reset khi tạo mới
-        setFormData({ full_name: '', phone_number: '', password: '' });
+        setFormData({ full_name: '', phone_number: '', shop_name: '', password: '' });
     }
   }, [initialData]);
 
@@ -48,6 +50,17 @@ export default function OwnerForm({ initialData, onSubmit, isLoading, onCancel }
           value={formData.full_name}
           onChange={(e) => setFormData({ ...formData, full_name: e.target.value })}
           placeholder="Ví dụ: Nguyễn Văn A"
+        />
+      </div>
+
+      <div className="space-y-2">
+        <Label htmlFor="shop_name">Tên hộ kinh doanh (Tên cửa hàng)</Label>
+        <Input 
+          id="shop_name" 
+          value={formData.shop_name}
+          onChange={(e) => setFormData({...formData, shop_name: e.target.value})}
+          placeholder="Tiệm tạp hóa Bình Minh"
+          required
         />
       </div>
 
