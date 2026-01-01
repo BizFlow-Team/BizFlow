@@ -104,7 +104,18 @@ export const createOwner = async (req, res) => {
             return res.status(400).json({ message: "Vui lòng điền đầy đủ thông tin" });
         }
 
-        // 2. Kiểm tra số điện thoại đã tồn tại chưa
+        // 2. Validate độ dài mật khẩu
+        if (password.length < 6) {
+            return res.status(400).json({ message: 'Mật khẩu phải có ít nhất 6 ký tự' });
+        }
+
+        // 3. Validate định dạng số điện thoại (10 chữ số)
+        const regex = /^\d{10}$/;
+        if (!regex.test(phone_number)) {
+            return res.status(400).json({ message: 'Số điện thoại không hợp lệ (phải có 10 chữ số)' });
+        }
+
+        // 4. Kiểm tra số điện thoại đã tồn tại chưa
         const checkUser = await database.query(
             'SELECT id FROM users WHERE phone_number = $1',
             [phone_number]
@@ -113,17 +124,17 @@ export const createOwner = async (req, res) => {
             return res.status(400).json({ message: "Số điện thoại này đã được đăng ký" });
         }
 
-        // 3. Lấy role_id của 'OWNER'
+        // 5. Lấy role_id của 'OWNER'
         const roleResult = await database.query("SELECT id FROM role WHERE role_name = 'OWNER'");
         if (roleResult.rows.length === 0) {
             return res.status(500).json({ message: "Lỗi hệ thống: Không tìm thấy role OWNER" });
         }
         const ownerRoleId = roleResult.rows[0].id;
 
-        // 4. Mã hóa mật khẩu
+        // 6. Mã hóa mật khẩu
         const hashedPassword = await bcrypt.hash(password, 10);
 
-        // 5. Tạo user mới
+        // 7. Tạo user mới
         const query = `
             INSERT INTO users (full_name, phone_number, password, role_id, status, shop_name)
             VALUES ($1, $2, $3, $4, 'ACTIVE', $5)

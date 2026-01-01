@@ -110,13 +110,14 @@ export const login = async (req, res) => {
         const isPasswordCorrect = await bcrypt.compare(password, user.password);
         if (!isPasswordCorrect) return res.status(400).json({ message: 'Invalid phone number or password' });
 
-        generateToken(user.id, res);
+        const token = generateToken(user.id, res);
 
         res.status(200).json({ 
             id: user.id,
             full_name: user.full_name,
             phone_number: user.phone_number,
-            role_id: user.role_id
+            role_id: user.role_id,
+            token: token
         });
     } catch (error) {
         console.error('Error in login controller:', error);
