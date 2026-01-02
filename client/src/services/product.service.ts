@@ -39,8 +39,18 @@ export const productService = {
     });
   },
 
-  // Giữ nguyên các hàm khác (delete, create...)
-  delete: async (id: string) => {
+  // Create product
+  create: async (data: Partial<Product>) => {
+    return api.post('/products', data);
+  },
+
+  // Update product
+  update: async (id: string | number, data: Partial<Product>) => {
+    return api.put(`/products/${id}`, data);
+  },
+
+  // Delete product
+  delete: async (id: string | number) => {
     return api.delete(`/products/${id}`);
-  }
+  },
 };

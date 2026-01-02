@@ -1,5 +1,5 @@
 // BizFlow/server/controllers/ProductController.js
-import db from '../database/db.js';
+import database from '../database/db.js';
 import { checkPlanLimit } from '../utils/planLimiter.js';
 
 export const getAllProducts = async (req, res) => {
@@ -7,7 +7,7 @@ export const getAllProducts = async (req, res) => {
     // SỬA: Lấy đúng field userId từ token (khớp với authMiddleware)
     const owner_id = req.user.userId; 
     
-    const result = await db.query(
+    const result = await database.query(
       'SELECT * FROM product WHERE owner_id = $1 ORDER BY created_at DESC',
       [owner_id]
     );
@@ -28,7 +28,7 @@ export const getProductById = async (req, res) => {
   const owner_id = req.user.userId; // SỬA: id -> userId
 
   try {
-    const result = await db.query('SELECT * FROM product WHERE id = $1 AND owner_id = $2', [id, owner_id]);
+    const result = await database.query('SELECT * FROM product WHERE id = $1 AND owner_id = $2', [id, owner_id]);
 
     if (result.rows.length === 0) {
       return res.status(404).json({ success: false, message: 'Không tìm thấy sản phẩm' });
@@ -78,7 +78,7 @@ export const createProduct = async (req, res) => {
     // 3. Thêm tham số vào mảng values
     const values = [owner_id, name, category, price, stock, imageToSave, true, code, unit];
 
-    const result = await db.query(sql, values);
+    const result = await database.query(sql, values);
 
     res.status(201).json({
       success: true,
@@ -98,7 +98,7 @@ export const updateProduct = async (req, res) => {
   const { name, category, price, stock, images, is_active, code, unit } = req.body;
 
   try {
-    const checkProduct = await db.query('SELECT * FROM product WHERE id = $1 AND owner_id = $2', [id, owner_id]);
+    const checkProduct = await database.query('SELECT * FROM product WHERE id = $1 AND owner_id = $2', [id, owner_id]);
     if (checkProduct.rows.length === 0) {
       return res.status(404).json({ success: false, message: 'Không tìm thấy sản phẩm' });
     }
@@ -130,7 +130,7 @@ export const updateProduct = async (req, res) => {
       id
     ];
 
-    const result = await db.query(sql, values);
+    const result = await database.query(sql, values);
 
     res.status(200).json({
       success: true,
@@ -148,7 +148,7 @@ export const deleteProduct = async (req, res) => {
   const owner_id = req.user.userId; // SỬA: id -> userId
 
   try {
-    const result = await db.query('DELETE FROM product WHERE id = $1 AND owner_id = $2 RETURNING id', [id, owner_id]);
+    const result = await database.query('DELETE FROM product WHERE id = $1 AND owner_id = $2 RETURNING id', [id, owner_id]);
 
     if (result.rows.length === 0) {
       return res.status(404).json({ success: false, message: 'Không tìm thấy sản phẩm' });
