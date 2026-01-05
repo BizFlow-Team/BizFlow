@@ -1,12 +1,13 @@
 import express from 'express';
-import * as OrderController from '../controllers/OrderController.js';
-import { createOrder, getAllOrders } from '../controllers/OrderController.js';
 import { verifyToken } from '../middleware/authMiddleware.js';
+import { createOrder, getAllOrders } from '../controllers/OrderController.js';
+import { createDraftOrderFromAI, transcribeAudio } from '../controllers/AIController.js';
 
 const router = express.Router();
 
-// Route tạo đơn hàng mới
-router.post('/', verifyToken, OrderController.createOrder);
+router.post('/ai/draft', verifyToken, createDraftOrderFromAI);
+router.post('/ai/transcribe', verifyToken, transcribeAudio);
+router.post('/', verifyToken, createOrder);
 router.get('/', verifyToken, getAllOrders);
 
 export default router;
