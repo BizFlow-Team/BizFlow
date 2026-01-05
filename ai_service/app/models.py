@@ -6,7 +6,8 @@ from typing import Optional, List
 class OrderItem(BaseModel):
     product_name: str
     quantity: float
-    unit: str
+    # SỬA Ở ĐÂY: Chuyển từ str thành Optional[str] và mặc định là None
+    unit: Optional[str] = None 
 
 class DraftOrderResponse(BaseModel):
     customer_name: Optional[str] = None
@@ -16,4 +17,14 @@ class DraftOrderResponse(BaseModel):
 
 class NaturalLanguageOrderRequest(BaseModel):
     message: str
-    user_id: Optional[str] = None
+    owner_id: str 
+
+class ProductSyncItem(BaseModel):
+    id: int
+    name: str
+    price: float
+    unit: Optional[str] = ""
+
+class ProductSyncRequest(BaseModel):
+    owner_id: str
+    products: List[ProductSyncItem]

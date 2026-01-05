@@ -1,16 +1,45 @@
 import React, { useState, useEffect, useRef } from 'react';
 import api from '@/lib/axios';
+import { orderService } from '@/services/order.service';
+import { productService } from '@/services/product.service';
+import { customerService } from '@/services/customer.service';
+import { toast } from 'sonner';
 import { 
   Bot, AlertCircle, Loader2, Mic, MicOff, 
-  Calculator, X, RefreshCw, ShoppingCart, User, Package, 
-  Trash2, Plus, Save, Edit2, Search
+  Trash2, Plus, Send, Sparkles, Search, CheckCircle,
+  CreditCard, Banknote, User, X
 } from 'lucide-react';
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
+import { formatCurrency } from '@/lib/utils';
+import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
+import {
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow,
+} from "@/components/ui/table";
 
-// --- COMPONENT VISUALIZER (SÓNG ÂM) ---
+// --- HELPER: Kiểm tra đơn vị có cho phép số lẻ không ---
+const isDecimalUnit = (unit) => {
+  if (!unit) return false;
+  const lower = unit.toLowerCase().trim();
+  // Các đơn vị đo lường liên tục cho phép số lẻ
+  const decimalUnits = ['kg', 'g', 'gram', 'l', 'lít', 'm', 'mét', 'cm', 'm2', 'm3', 'tấn', 'tạ', 'yến'];
+  return decimalUnits.includes(lower);
+};
+
+// --- COMPONENT SÓNG ÂM ---
 const AudioVisualizer = ({ isRecording }) => {
   if (!isRecording) return null;
   return (
@@ -23,44 +52,69 @@ const AudioVisualizer = ({ isRecording }) => {
   );
 };
 
-const AIOrderCreator = () => {
-  const [transcript, setTranscript] = useState('');
+const AIOrderCreator = ({ onSuccess }) => {
+  // --- STATE ---
+  const [transcript, setTranscript] = useState("");
   const [isRecording, setIsRecording] = useState(false);
-  const [status, setStatus] = useState('idle'); 
-  const [error, setError] = useState('');
-  const [result, setResult] = useState(null); // Dữ liệu đơn hàng (Editable)
+  const [isLoading, setIsLoading] = useState(false);
   
+  const [orderItems, setOrderItems] = useState([]);
+  const [selectedCustomer, setSelectedCustomer] = useState(null); 
+  const [customerSearchQuery, setCustomerSearchQuery] = useState(""); 
+  const [paymentMethod, setPaymentMethod] = useState("cash"); 
+
+  // Data cache
+  const [availableProducts, setAvailableProducts] = useState([]);
+  const [availableCustomers, setAvailableCustomers] = useState([]);
+
+  // Modal State
+  const [isProductModalOpen, setIsProductModalOpen] = useState(false);
+  const [isCustomerModalOpen, setIsCustomerModalOpen] = useState(false);
+  const [editingRowIndex, setEditingRowIndex] = useState(null); 
+  const [modalSearch, setModalSearch] = useState(""); 
+
   const mediaRecorderRef = useRef(null);
-  const audioChunksRef = useRef([]);
-  const textareaRef = useRef(null);
 
-  // Auto-scroll textarea
+  // --- 1. LOAD DATA (ĐÃ SỬA LỖI) ---
   useEffect(() => {
-    if (textareaRef.current) textareaRef.current.scrollTop = textareaRef.current.scrollHeight;
-  }, [transcript]);
+    const fetchData = async () => {
+        try {
+            // SỬA: productService.getAll trả về mảng luôn, không cần .data
+            const products = await productService.getAll({ limit: 1000 });
+            if (Array.isArray(products)) {
+                setAvailableProducts(products);
+            }
 
-  // --- 1. LOGIC GHI ÂM (Giữ nguyên) ---
+            // Load khách hàng
+            const customers = await customerService.getCustomers();
+            if (Array.isArray(customers)) {
+                // Map lại field name cho khớp logic
+                setAvailableCustomers(customers.map(c => ({...c, name: c.full_name})));
+            }
+        } catch (error) {
+            console.error("Lỗi tải dữ liệu:", error);
+            toast.error("Không thể tải danh sách sản phẩm/khách hàng");
+        }
+    };
+    fetchData();
+  }, []);
+
+  // --- 2. LOGIC GHI ÂM ---
   const startRecording = async () => {
     try {
-      setError('');
       const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
       const mediaRecorder = new MediaRecorder(stream);
       mediaRecorderRef.current = mediaRecorder;
-      audioChunksRef.current = [];
-
-      mediaRecorder.ondataavailable = (e) => { if (e.data.size > 0) audioChunksRef.current.push(e.data); };
+      const chunks = [];
+      mediaRecorder.ondataavailable = (e) => { if (e.data.size > 0) chunks.push(e.data); };
       mediaRecorder.onstop = async () => {
-        const audioBlob = new Blob(audioChunksRef.current, { type: 'audio/webm' });
+        const audioBlob = new Blob(chunks, { type: 'audio/webm' });
+        await handleTranscribe(audioBlob); 
         stream.getTracks().forEach(track => track.stop());
-        await handleTranscribe(audioBlob);
       };
-
       mediaRecorder.start();
       setIsRecording(true);
-      setStatus('recording');
-    } catch (err) {
-      setError("Không thể truy cập Micro. Vui lòng cấp quyền.");
-    }
+    } catch (err) { toast.error("Lỗi Micro"); }
   };
 
   const stopRecording = () => {
@@ -70,368 +124,407 @@ const AIOrderCreator = () => {
     }
   };
 
-  // --- 2. DỊCH GIỌNG NÓI ---
   const handleTranscribe = async (audioBlob) => {
-    setStatus('transcribing');
+    setIsLoading(true);
     try {
       const formData = new FormData();
       formData.append('audio', audioBlob, 'recording.webm');
-
       const response = await api.post('/orders/ai/transcribe', formData, {
-        headers: { 'Content-Type': 'multipart/form-data' },
+        headers: { 'Content-Type': 'multipart/form-data' }
       });
-
-      if (response.data && response.data.text) {
-        setTranscript(prev => prev + (prev ? ' ' : '') + response.data.text);
-        setStatus('idle');
-      }
-    } catch (err) {
-      setError("Lỗi dịch giọng nói. Kiểm tra kết nối.");
-      setStatus('idle');
-    }
-  };
-
-  // --- 3. PHÂN TÍCH ĐƠN HÀNG ---
-  const handleAnalyze = async () => {
-    if (!transcript.trim()) return;
-    setStatus('analyzing');
-    setResult(null);
-    setError('');
-    
-    try {
-      const response = await api.post('/orders/ai/draft', { message: transcript });
       if (response.data.success) {
-        setResult(response.data.data);
-        setStatus('done');
+        setTranscript(prev => (prev ? prev + " " + response.data.text : response.data.text));
       }
-    } catch (err) {
-      setError(err.response?.data?.message || 'Lỗi xử lý AI');
-      setStatus('idle');
-    }
+    } catch { toast.error("Lỗi xử lý giọng nói"); } finally { setIsLoading(false); }
   };
 
-  const handleReset = () => {
-    setTranscript('');
-    setError('');
-    setResult(null);
-    setStatus('idle');
+  // --- 3. PHÂN TÍCH AI ---
+  const handleAnalyzeOrder = async () => {
+    if (!transcript.trim()) return toast.warning("Vui lòng nhập nội dung");
+    setIsLoading(true);
+    try {
+        const response = await api.post('/orders/ai/draft', { message: transcript });
+        if (response.data.success) {
+            const { items, customer, is_debt } = response.data.data;
+            
+            // Map sản phẩm
+            const syncedItems = items.map(aiItem => {
+                const matched = availableProducts.find(p => p.id === aiItem.product_id) || 
+                                availableProducts.find(p => p.name === aiItem.product_name);
+                if (matched) return createOrderItemFromProduct(matched, aiItem.quantity);
+                return { ...aiItem, found: false, stock_available: 0 };
+            });
+
+            setOrderItems(syncedItems);
+
+            // Map khách hàng
+            if (customer && customer.id) {
+                const localCustomer = availableCustomers.find(c => c.id === customer.id) || customer;
+                setSelectedCustomer(localCustomer);
+            } else if (customer && customer.name) {
+                setCustomerSearchQuery(customer.name);
+                setSelectedCustomer(null);
+            }
+
+            setPaymentMethod(is_debt ? 'debt' : 'cash');
+            toast.success("Phân tích xong!");
+        } else {
+            toast.error("Không hiểu ý định");
+        }
+    } catch { toast.error("Lỗi kết nối AI"); } finally { setIsLoading(false); }
   };
 
-  // --- 4. CÁC TÍNH NĂNG CHỈNH SỬA (MỚI) ---
+  // --- 4. XỬ LÝ SẢN PHẨM ---
   
-  // Cập nhật giá trị 1 dòng (Số lượng, Giá, Tên...)
-  const updateItem = (index, field, value) => {
-    const updatedItems = [...result.items];
-    const item = updatedItems[index];
+  const createOrderItemFromProduct = (product, qty = 1) => ({
+    found: true,
+    product_id: product.id,
+    product_name: product.name,
+    stock_available: product.stock,
+    price: Number(product.price),
+    unit: product.unit || 'cái',
+    quantity: qty,
+    total: Number(product.price) * qty,
+    image: product.image // [Mới] Thêm ảnh để hiển thị trong bảng
+  });
 
-    // Cập nhật field
-    item[field] = value;
+  const addItem = () => {
+    setEditingRowIndex(orderItems.length); // Đánh dấu là đang thêm dòng mới
+    setModalSearch("");
+    setIsProductModalOpen(true); // Mở Modal chọn ngay
+  };
 
-    // Logic tính toán lại
-    if (field === 'quantity' || field === 'price') {
-       // Ép kiểu số để tính toán
-       const qty = parseFloat(item.quantity) || 0;
-       const price = parseFloat(item.price) || 0;
-       item.total = qty * price;
+  const removeItem = (index) => {
+    const newItems = [...orderItems];
+    newItems.splice(index, 1);
+    setOrderItems(newItems);
+  };
+
+  const handleProductSelect = (product) => {
+    const newItems = [...orderItems];
+    
+    // Nếu đang sửa dòng cũ thì giữ lại số lượng cũ, nếu thêm mới thì mặc định 1
+    const currentQty = editingRowIndex < newItems.length ? newItems[editingRowIndex].quantity : 1;
+    
+    const newItem = createOrderItemFromProduct(product, currentQty);
+
+    if (editingRowIndex >= newItems.length) {
+        newItems.push(newItem);
+    } else {
+        newItems[editingRowIndex] = newItem;
+    }
+    
+    setOrderItems(newItems);
+    setIsProductModalOpen(false);
+    setEditingRowIndex(null);
+  };
+
+  const handleQuantityChange = (index, value) => {
+    const newItems = [...orderItems];
+    const item = newItems[index];
+    
+    let qty = parseFloat(value);
+    
+    // VALIDATE SỐ LƯỢNG: Nếu đơn vị không cho phép lẻ -> làm tròn xuống
+    if (!isDecimalUnit(item.unit)) {
+        qty = Math.floor(qty); 
     }
 
-    // Tính lại tổng tiền cả đơn
-    const newTotal = updatedItems.reduce((sum, i) => sum + (i.total || 0), 0);
+    if (isNaN(qty) || qty < 0) qty = 0;
+
+    item.quantity = qty;
+    item.total = item.price * qty;
     
-    setResult({ 
-        ...result, 
-        items: updatedItems, 
-        estimated_total: newTotal 
-    });
+    newItems[index] = item;
+    setOrderItems(newItems);
   };
 
-  // Xóa món hàng
-  const removeItem = (index) => {
-    const updatedItems = result.items.filter((_, i) => i !== index);
-    const newTotal = updatedItems.reduce((sum, i) => sum + (i.total || 0), 0);
-    setResult({ ...result, items: updatedItems, estimated_total: newTotal });
-  };
-
-  // Thêm món hàng thủ công (Dòng trống)
-  const addItem = () => {
-    const newItem = {
-        product_name: "", 
-        ai_product_name: "Món thêm mới",
-        found: false, // Mặc định là chưa tìm thấy trong kho (cần nhập tay)
-        quantity: 1,
-        unit: "cái",
-        price: 0,
-        total: 0,
-        isNew: true // Cờ đánh dấu dòng mới thêm
-    };
-    
-    const updatedItems = [...result.items, newItem];
-    setResult({ ...result, items: updatedItems });
-  };
-
-  // Hàm tạo đơn cuối cùng (Gửi lên Server lưu DB)
+  // --- 5. TẠO ĐƠN HÀNG ---
   const handleCreateOrder = async () => {
-      // Logic gọi API tạo đơn thật ở đây
-      alert(`Đã tạo đơn hàng trị giá: ${result.estimated_total.toLocaleString()} đ \n(Gửi ${result.items.length} món lên server...)`);
-      // await api.post('/orders', { ...result });
-      handleReset();
+    if (orderItems.length === 0) return toast.warning("Đơn hàng trống!");
+    if (orderItems.some(i => !i.found)) return toast.error("Vui lòng chọn sản phẩm cho các dòng lỗi!");
+
+    try {
+        const payload = {
+            customer_id: selectedCustomer?.id || null,
+            customer_name: selectedCustomer?.name || customerSearchQuery || "Khách lẻ",
+            is_debt: paymentMethod === 'debt',
+            payment_method: paymentMethod, 
+            items: orderItems.map(i => ({
+                product_id: i.product_id,
+                quantity: i.quantity,
+                price: i.price
+            })),
+            total_amount: orderItems.reduce((acc, cur) => acc + cur.total, 0)
+        };
+
+        await orderService.create(payload);
+        toast.success("Tạo đơn hàng thành công!");
+        setOrderItems([]);
+        setTranscript("");
+        setSelectedCustomer(null);
+        setCustomerSearchQuery("");
+        setPaymentMethod("cash");
+        if (onSuccess) onSuccess();
+    } catch (error) {
+        toast.error("Lỗi tạo đơn: " + (error.response?.data?.message || error.message));
+    }
   };
+
+  const totalAmount = orderItems.reduce((acc, cur) => acc + (cur.total || 0), 0);
+
+  // Filter list cho Modal
+  const filteredProducts = availableProducts.filter(p => 
+    p.name.toLowerCase().includes(modalSearch.toLowerCase()) || 
+    p.code?.toLowerCase().includes(modalSearch.toLowerCase())
+  );
+
+  const filteredCustomers = availableCustomers.filter(c => 
+    c.name.toLowerCase().includes(modalSearch.toLowerCase()) ||
+    c.phone_number?.includes(modalSearch)
+  );
 
   return (
-    <div className="max-w-6xl mx-auto space-y-6 pb-20">
-      
-      {/* --- PHẦN 1: NHẬP LIỆU (Voice/Text) --- */}
-      <Card className={`border-2 transition-all ${isRecording ? 'border-red-400 shadow-lg shadow-red-100' : 'border-gray-200'}`}>
-        <CardHeader className="flex flex-row items-center justify-between border-b pb-3 pt-3 bg-slate-50 rounded-t-xl">
-          <div className="flex items-center gap-3">
-             <div className="p-2.5 bg-gradient-to-br from-blue-500 to-blue-600 text-white rounded-xl shadow-blue-200 shadow-md">
-                <Bot size={22} />
-             </div>
-             <div>
-               <CardTitle className="text-lg text-gray-800">Trợ lý AI nhập đơn</CardTitle>
-               <p className="text-xs text-gray-500">Giọng nói hoặc văn bản</p>
-             </div>
-          </div>
-          <Button variant="ghost" size="icon" onClick={handleReset} title="Làm mới">
-             <RefreshCw size={18} className="text-gray-500"/>
-          </Button>
+    <div className="w-full space-y-4">
+      {/* 1. INPUT GIỌNG NÓI */}
+      <Card className="bg-gradient-to-r from-blue-50 to-indigo-50 border-blue-100 shadow-sm">
+        <CardHeader className="pb-2">
+           <CardTitle className="text-lg flex items-center gap-2 text-indigo-700">
+              <Sparkles size={20} />
+              Trợ lý AI Bán Hàng
+           </CardTitle>
         </CardHeader>
-        
-        <CardContent className="p-0">
-           <div className="relative">
-             <textarea
-                ref={textareaRef}
-                className="w-full min-h-[100px] p-5 resize-none outline-none text-lg text-gray-700 bg-white placeholder:text-gray-300"
-                placeholder={isRecording ? "..." : "Ví dụ: Lấy 5 bao xi măng Hà Tiên, 2 thùng sơn Dulux trắng..."}
-                value={transcript}
-                onChange={(e) => setTranscript(e.target.value)}
-                disabled={status === 'analyzing' || status === 'transcribing'}
-             />
-             
-             {/* Loading Overlay */}
-             {(status === 'transcribing' || status === 'analyzing') && (
-                <div className="absolute inset-0 bg-white/90 flex items-center justify-center z-10 backdrop-blur-[1px]">
-                   <div className="flex items-center gap-3 bg-white px-6 py-3 rounded-full shadow-xl border border-blue-100 text-blue-600 font-medium animate-in zoom-in-95">
-                      <Loader2 className="animate-spin" size={20} />
-                      {status === 'transcribing' ? "Đang nghe..." : "Đang phân tích..."}
-                   </div>
-                </div>
-             )}
-           </div>
-
-           {/* Toolbar */}
-           <div className="p-3 bg-gray-50 border-t flex flex-wrap items-center justify-between gap-4">
-              <div className="flex-1 min-w-[200px]">
-                 {error && <span className="text-sm text-red-600 flex items-center gap-1 font-medium bg-red-50 px-2 py-1 rounded w-fit"><AlertCircle size={14}/> {error}</span>}
+        <CardContent>
+           <div className="flex flex-col gap-3">
+              <div className="relative">
+                 <textarea 
+                    value={transcript}
+                    onChange={(e) => setTranscript(e.target.value)}
+                    placeholder="Ví dụ: Lấy cho anh Nam 10 bao xi măng, chuyển khoản nhé..."
+                    className="w-full min-h-[80px] p-3 pr-12 rounded-md border border-gray-300 focus:ring-2 focus:ring-indigo-200 resize-none"
+                    disabled={isLoading}
+                    onKeyDown={(e) => {
+                        if (e.key === 'Enter' && !e.shiftKey) {
+                            e.preventDefault();
+                            handleAnalyzeOrder();
+                        }
+                    }}
+                 />
+                 <div className="absolute bottom-3 right-3">
+                    <Button
+                       size="icon" variant={isRecording ? "destructive" : "secondary"}
+                       className={`rounded-full h-10 w-10 shadow-md ${isRecording ? 'animate-pulse ring-4 ring-red-100' : ''}`}
+                       onClick={isRecording ? stopRecording : startRecording}
+                    >
+                       {isRecording ? <MicOff size={18} /> : <Mic size={18} />}
+                    </Button>
+                 </div>
               </div>
-
-              <div className="flex gap-3 w-full sm:w-auto">
-                 <button
-                    onMouseDown={startRecording}
-                    onMouseUp={stopRecording}
-                    onTouchStart={startRecording}
-                    onTouchEnd={stopRecording}
-                    disabled={status !== 'idle' && status !== 'recording'}
-                    className={`
-                       flex-1 sm:flex-none relative px-6 py-2.5 rounded-xl font-semibold flex items-center justify-center gap-2 transition-all select-none
-                       ${isRecording 
-                          ? 'bg-red-500 text-white shadow-lg shadow-red-200 scale-95' 
-                          : 'bg-white text-gray-700 border border-gray-300 hover:bg-gray-100 shadow-sm'
-                       }
-                    `}
-                 >
-                    {isRecording ? <MicOff size={18}/> : <Mic size={18}/>}
-                    {isRecording ? <div className="flex items-center gap-2"><span>Thả để gửi</span><AudioVisualizer isRecording={true}/></div> : "Giữ để nói"}
-                 </button>
-
-                 <Button
-                    onClick={handleAnalyze}
-                    disabled={!transcript.trim() || status !== 'idle'}
-                    className="flex-1 sm:flex-none px-6 py-5 bg-blue-600 hover:bg-blue-700 text-white rounded-xl shadow-lg shadow-blue-200 transition-all gap-2"
-                 >
-                    <Calculator size={18} /> Phân tích ngay
+              <div className="flex justify-between items-center">
+                 <div className="flex items-center gap-2">
+                    {isLoading && <span className="text-sm text-indigo-600 flex items-center"><Loader2 className="w-4 h-4 mr-1 animate-spin"/> Đang phân tích...</span>}
+                    <AudioVisualizer isRecording={isRecording} />
+                 </div>
+                 <Button onClick={handleAnalyzeOrder} disabled={isLoading || !transcript.trim()} className="bg-indigo-600 hover:bg-indigo-700 text-white">
+                    <Send size={16} className="mr-2"/> Phân tích
                  </Button>
               </div>
            </div>
         </CardContent>
       </Card>
 
-      {/* --- PHẦN 2: KẾT QUẢ & CHỈNH SỬA (Editable Table) --- */}
-      {result && (
-        <div className="animate-in fade-in slide-in-from-bottom-4 duration-500">
+      {/* 2. CHI TIẾT ĐƠN HÀNG */}
+      {(orderItems.length > 0 || selectedCustomer || customerSearchQuery) && (
+        <div className="flex flex-col gap-4 animate-in fade-in slide-in-from-bottom-4">
            
-           <div className="flex flex-col lg:flex-row gap-6">
-              {/* Cột Trái: Thông tin khách & Tổng */}
-              <Card className="lg:w-1/3 h-fit border-blue-100 shadow-sm">
-                 <CardHeader className="pb-3 border-b bg-blue-50/50">
-                    <CardTitle className="text-base flex items-center gap-2 text-blue-800">
-                       <User size={18} /> Thông tin đơn hàng
-                    </CardTitle>
-                 </CardHeader>
-                 <CardContent className="p-5 space-y-6">
-                    {/* Tên Khách */}
-                    <div>
-                       <label className="text-xs font-bold text-gray-400 uppercase tracking-wider">Khách hàng</label>
-                       <div className="mt-2 flex items-center gap-2">
-                           <Input 
-                               value={result.customer?.name || ""} 
-                               onChange={(e) => setResult({...result, customer: {...result.customer, name: e.target.value}})}
-                               className="font-medium text-lg h-10 border-gray-200 focus:border-blue-500"
-                               placeholder="Nhập tên khách..."
-                           />
-                           {result.customer?.found ? (
-                              <div className="bg-green-100 text-green-700 p-2 rounded-md" title="Khách quen"><User size={20}/></div>
-                           ) : (
-                              <div className="bg-orange-100 text-orange-700 p-2 rounded-md" title="Khách vãng lai"><User size={20}/></div>
-                           )}
-                       </div>
-                       {/* Nếu là khách mới thì hiện thêm input SĐT */}
-                       {!result.customer?.found && (
-                           <Input 
-                                className="mt-2 h-9 text-sm" 
-                                placeholder="Số điện thoại (Tùy chọn)"
-                           />
-                       )}
-                    </div>
-                    
-                    {/* Tổng tiền (Tự động tính) */}
-                    <div className="pt-4 border-t border-dashed">
-                       <label className="text-xs font-bold text-gray-400 uppercase tracking-wider">Tổng thanh toán</label>
-                       <div className="text-3xl font-bold text-blue-600 mt-1">
-                          {result.estimated_total?.toLocaleString()} ₫
-                       </div>
-                       <p className="text-xs text-gray-400 mt-1 italic">
-                          *Đã bao gồm {result.items.length} sản phẩm
-                       </p>
-                    </div>
-                    
-                    {/* Nút chốt đơn */}
-                    <Button 
-                        onClick={handleCreateOrder}
-                        className="w-full h-12 bg-green-600 hover:bg-green-700 text-white font-bold text-lg shadow-green-200 shadow-lg"
-                    >
-                       <ShoppingCart className="mr-2" size={20}/> Tạo đơn hàng
-                    </Button>
-                 </CardContent>
+           {/* INFO & THANH TOÁN */}
+           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              {/* CHỌN KHÁCH HÀNG */}
+              <Card className="p-4 flex flex-col justify-center gap-2 border-l-4 border-l-blue-500">
+                 <div className="flex justify-between items-center">
+                     <div className="text-sm text-gray-500 flex items-center gap-2"><User size={14}/> Khách hàng</div>
+                     {selectedCustomer && (
+                         <Button variant="ghost" size="sm" className="h-6 w-6 p-0 text-gray-400" onClick={() => setSelectedCustomer(null)}><X size={14}/></Button>
+                     )}
+                 </div>
+                 
+                 {selectedCustomer ? (
+                     <div 
+                        className="font-bold text-lg cursor-pointer hover:text-blue-600 flex flex-col"
+                        onClick={() => { setModalSearch(""); setIsCustomerModalOpen(true); }}
+                     >
+                         <span>{selectedCustomer.name}</span>
+                         <span className="text-xs text-gray-500 font-normal">{selectedCustomer.phone_number} - {selectedCustomer.address}</span>
+                     </div>
+                 ) : (
+                     <div className="flex gap-2">
+                         <Input 
+                            placeholder="Tên khách lẻ..." 
+                            value={customerSearchQuery}
+                            onChange={(e) => setCustomerSearchQuery(e.target.value)}
+                            className="flex-1 font-bold"
+                         />
+                         <Button variant="outline" onClick={() => { setModalSearch(""); setIsCustomerModalOpen(true); }}>
+                            <Search size={16} className="mr-2"/> Chọn
+                         </Button>
+                     </div>
+                 )}
               </Card>
 
-              {/* Cột Phải: Danh sách sản phẩm (Editable) */}
-              <Card className="lg:w-2/3 border-gray-200 shadow-sm overflow-hidden flex flex-col">
-                 <CardHeader className="bg-gray-50 border-b py-3 flex flex-row justify-between items-center">
-                    <CardTitle className="text-base flex items-center gap-2 text-gray-700">
-                       <Package size={18}/> Danh sách sản phẩm
-                    </CardTitle>
-                    <Badge variant="outline" className="bg-white">{result.items.length} món</Badge>
-                 </CardHeader>
-                 
-                 <div className="flex-1 overflow-x-auto">
-                    <table className="w-full text-sm text-left">
-                       <thead className="bg-gray-50 text-gray-500 font-medium border-b">
-                          <tr>
-                             <th className="px-4 py-3 w-[50px]">Ảnh</th>
-                             <th className="px-4 py-3">Tên sản phẩm</th>
-                             <th className="px-4 py-3 w-[100px] text-center">SL</th>
-                             <th className="px-4 py-3 w-[80px]">Đơn vị</th>
-                             <th className="px-4 py-3 w-[120px] text-right">Đơn giá</th>
-                             <th className="px-4 py-3 w-[120px] text-right">Thành tiền</th>
-                             <th className="px-2 py-3 w-[40px]"></th>
-                          </tr>
-                       </thead>
-                       <tbody className="divide-y divide-gray-100">
-                          {result.items.map((item, idx) => (
-                             <tr key={idx} className={`group hover:bg-blue-50/30 transition-colors ${!item.found && !item.isNew ? 'bg-red-50/40' : ''}`}>
-                                {/* 1. Ảnh */}
-                                <td className="px-4 py-3">
-                                   <div className="h-10 w-10 rounded bg-gray-100 border flex items-center justify-center overflow-hidden">
-                                      {item.image ? (
-                                         <img src={item.image} alt="" className="w-full h-full object-cover"/>
-                                      ) : (
-                                         <Package className="text-gray-300" size={18}/>
-                                      )}
-                                   </div>
-                                </td>
-
-                                {/* 2. Tên Sản Phẩm (Input text nếu cần sửa) */}
-                                <td className="px-4 py-3">
-                                   <input 
-                                      type="text"
-                                      value={item.found ? item.product_name : (item.product_name || item.ai_product_name)}
-                                      onChange={(e) => updateItem(idx, 'product_name', e.target.value)}
-                                      className={`w-full bg-transparent border-none outline-none focus:ring-0 p-0 font-medium ${!item.found ? 'text-red-600 placeholder-red-300' : 'text-gray-800'}`}
-                                      placeholder="Nhập tên sản phẩm..."
-                                   />
-                                   {!item.found && !item.isNew && (
-                                      <div className="text-[10px] text-red-500 flex items-center gap-1 mt-1">
-                                         <AlertCircle size={10}/> Kho không có món này
-                                      </div>
-                                   )}
-                                </td>
-
-                                {/* 3. Số lượng */}
-                                <td className="px-4 py-3 text-center">
-                                   <input 
-                                      type="number" min="1"
-                                      value={item.quantity}
-                                      onChange={(e) => updateItem(idx, 'quantity', e.target.value)}
-                                      className="w-16 text-center bg-white border border-gray-200 rounded px-1 py-1 focus:border-blue-500 outline-none font-bold"
-                                   />
-                                </td>
-
-                                {/* 4. Đơn vị */}
-                                <td className="px-4 py-3">
-                                   <input 
-                                      type="text"
-                                      value={item.unit}
-                                      onChange={(e) => updateItem(idx, 'unit', e.target.value)}
-                                      className="w-full bg-transparent border-none outline-none text-gray-500 text-center"
-                                   />
-                                </td>
-
-                                {/* 5. Đơn giá */}
-                                <td className="px-4 py-3 text-right">
-                                   <input 
-                                      type="number"
-                                      value={item.price}
-                                      onChange={(e) => updateItem(idx, 'price', e.target.value)}
-                                      className="w-24 text-right bg-transparent border-b border-transparent hover:border-gray-300 focus:border-blue-500 outline-none p-0"
-                                   />
-                                </td>
-
-                                {/* 6. Thành tiền (Read only) */}
-                                <td className="px-4 py-3 text-right font-bold text-gray-700">
-                                   {(item.quantity * item.price).toLocaleString()}
-                                </td>
-
-                                {/* 7. Nút Xóa */}
-                                <td className="px-2 py-3 text-center">
-                                   <button 
-                                      onClick={() => removeItem(idx)}
-                                      className="p-1.5 text-gray-300 hover:text-red-600 hover:bg-red-50 rounded transition-all opacity-0 group-hover:opacity-100"
-                                      title="Xóa dòng này"
-                                   >
-                                      <Trash2 size={16}/>
-                                   </button>
-                                </td>
-                             </tr>
-                          ))}
-                       </tbody>
-                    </table>
+              {/* THANH TOÁN */}
+              <Card className="p-4 flex flex-col justify-between border-l-4 border-l-green-500 gap-3">
+                 <div className="flex justify-between items-start">
+                    <div>
+                        <p className="text-sm text-gray-500">Tổng thanh toán</p>
+                        <p className="font-bold text-2xl text-blue-600">{formatCurrency(totalAmount)}</p>
+                    </div>
+                    <Tabs value={paymentMethod} onValueChange={setPaymentMethod} className="w-[200px]">
+                        <TabsList className="grid w-full grid-cols-3 h-8">
+                            <TabsTrigger value="cash"><Banknote size={14}/></TabsTrigger>
+                            <TabsTrigger value="transfer"><CreditCard size={14}/></TabsTrigger>
+                            <TabsTrigger value="debt" className="data-[state=active]:text-red-600">Nợ</TabsTrigger>
+                        </TabsList>
+                    </Tabs>
                  </div>
-
-                 {/* Nút Thêm Mới */}
-                 <div className="p-3 border-t bg-gray-50">
-                    <Button 
-                       variant="outline" 
-                       onClick={addItem}
-                       className="w-full border-dashed border-gray-300 text-gray-500 hover:text-blue-600 hover:border-blue-400 hover:bg-blue-50"
-                    >
-                       <Plus size={16} className="mr-2"/> Thêm dòng sản phẩm mới
-                    </Button>
-                 </div>
+                 <Button onClick={handleCreateOrder} className="w-full bg-green-600 hover:bg-green-700">Xác nhận tạo đơn</Button>
               </Card>
            </div>
+
+           {/* BẢNG SẢN PHẨM */}
+           <Card className="overflow-hidden">
+              <div className="overflow-x-auto">
+                 <Table>
+                    <TableHeader className="bg-gray-50">
+                       <TableRow>
+                          <TableHead className="w-10 text-center">#</TableHead>
+                          <TableHead>Tên sản phẩm</TableHead>
+                          <TableHead className="w-24 text-center">ĐVT</TableHead>
+                          <TableHead className="w-28 text-center">SL</TableHead>
+                          <TableHead className="w-32 text-right">Đơn giá</TableHead>
+                          <TableHead className="w-32 text-right">Thành tiền</TableHead>
+                          <TableHead className="w-10"></TableHead>
+                       </TableRow>
+                    </TableHeader>
+                    <TableBody>
+                       {orderItems.map((item, idx) => (
+                          <TableRow key={idx} className={!item.found ? 'bg-red-50' : ''}>
+                             <TableCell className="text-center text-gray-500">{idx + 1}</TableCell>
+                             <TableCell>
+                                {/* NÚT CHỌN SẢN PHẨM MỞ MODAL */}
+                                <div 
+                                    className="cursor-pointer hover:text-blue-600 font-medium flex items-center gap-2 select-none"
+                                    onClick={() => {
+                                        setEditingRowIndex(idx);
+                                        setModalSearch("");
+                                        setIsProductModalOpen(true);
+                                    }}
+                                >
+                                    {item.product_name || <span className="text-gray-400 italic">Bấm để chọn sản phẩm...</span>}
+                                    {!item.found && <AlertCircle size={14} className="text-red-500"/>}
+                                </div>
+                                {item.found && <div className="text-xs text-green-600">Kho: {item.stock_available}</div>}
+                             </TableCell>
+                             <TableCell className="text-center"><Badge variant="outline">{item.unit}</Badge></TableCell>
+                             <TableCell>
+                                <Input 
+                                    type="number" 
+                                    min="0"
+                                    step={isDecimalUnit(item.unit) ? "0.1" : "1"} 
+                                    value={item.quantity}
+                                    onChange={(e) => handleQuantityChange(idx, e.target.value)}
+                                    className="h-8 text-center font-bold"
+                                />
+                             </TableCell>
+                             <TableCell className="text-right">{formatCurrency(item.price)}</TableCell>
+                             <TableCell className="text-right font-bold text-blue-600">{formatCurrency(item.total)}</TableCell>
+                             <TableCell>
+                                <Button size="icon" variant="ghost" onClick={() => removeItem(idx)} className="h-8 w-8 hover:text-red-600"><Trash2 size={16}/></Button>
+                             </TableCell>
+                          </TableRow>
+                       ))}
+                    </TableBody>
+                 </Table>
+              </div>
+              <div className="p-3 border-t bg-gray-50">
+                 <Button variant="outline" onClick={addItem} className="w-full border-dashed"><Plus size={16} className="mr-2"/> Thêm dòng sản phẩm</Button>
+              </div>
+           </Card>
         </div>
       )}
+
+      {/* --- MODAL CHỌN SẢN PHẨM --- */}
+      <Dialog open={isProductModalOpen} onOpenChange={setIsProductModalOpen}>
+        <DialogContent className="max-w-3xl max-h-[80vh] flex flex-col">
+            <DialogHeader>
+                <DialogTitle>Chọn sản phẩm từ kho</DialogTitle>
+            </DialogHeader>
+            <div className="flex gap-2 my-2">
+                <Search className="text-gray-400"/>
+                <Input placeholder="Tìm tên hoặc mã sản phẩm..." value={modalSearch} onChange={e => setModalSearch(e.target.value)} autoFocus />
+            </div>
+            <div className="overflow-y-auto flex-1 border rounded-md">
+                <Table>
+                    <TableHeader className="sticky top-0 bg-white">
+                        <TableRow>
+                            <TableHead>Tên sản phẩm</TableHead>
+                            <TableHead>Đơn vị</TableHead>
+                            <TableHead className="text-right">Giá bán</TableHead>
+                            <TableHead className="text-center">Tồn kho</TableHead>
+                            <TableHead></TableHead>
+                        </TableRow>
+                    </TableHeader>
+                    <TableBody>
+                        {filteredProducts.map(p => (
+                            <TableRow key={p.id} className="cursor-pointer hover:bg-gray-100" onClick={() => handleProductSelect(p)}>
+                                <TableCell className="font-medium">{p.name}</TableCell>
+                                <TableCell>{p.unit}</TableCell>
+                                <TableCell className="text-right">{formatCurrency(Number(p.price))}</TableCell>
+                                <TableCell className="text-center font-bold">{p.stock}</TableCell>
+                                <TableCell><Button size="sm" variant="ghost">Chọn</Button></TableCell>
+                            </TableRow>
+                        ))}
+                        {filteredProducts.length === 0 && <TableRow><TableCell colSpan={5} className="text-center py-8">Không tìm thấy sản phẩm</TableCell></TableRow>}
+                    </TableBody>
+                </Table>
+            </div>
+        </DialogContent>
+      </Dialog>
+
+      {/* --- MODAL CHỌN KHÁCH HÀNG --- */}
+      <Dialog open={isCustomerModalOpen} onOpenChange={setIsCustomerModalOpen}>
+        <DialogContent className="max-w-2xl max-h-[80vh] flex flex-col">
+            <DialogHeader>
+                <DialogTitle>Danh sách khách hàng</DialogTitle>
+            </DialogHeader>
+            <div className="flex gap-2 my-2">
+                <Search className="text-gray-400"/>
+                <Input placeholder="Tìm tên hoặc số điện thoại..." value={modalSearch} onChange={e => setModalSearch(e.target.value)} autoFocus />
+            </div>
+            <div className="overflow-y-auto flex-1 border rounded-md">
+                <Table>
+                    <TableHeader className="sticky top-0 bg-white">
+                        <TableRow>
+                            <TableHead>Tên khách hàng</TableHead>
+                            <TableHead>Số điện thoại</TableHead>
+                            <TableHead>Địa chỉ</TableHead>
+                            <TableHead></TableHead>
+                        </TableRow>
+                    </TableHeader>
+                    <TableBody>
+                        {filteredCustomers.map(c => (
+                            <TableRow key={c.id} className="cursor-pointer hover:bg-gray-100" onClick={() => { setSelectedCustomer(c); setIsCustomerModalOpen(false); }}>
+                                <TableCell className="font-bold">{c.name}</TableCell>
+                                <TableCell>{c.phone_number}</TableCell>
+                                <TableCell>{c.address}</TableCell>
+                                <TableCell><Button size="sm" variant="ghost">Chọn</Button></TableCell>
+                            </TableRow>
+                        ))}
+                         {filteredCustomers.length === 0 && <TableRow><TableCell colSpan={4} className="text-center py-8">Không tìm thấy khách hàng</TableCell></TableRow>}
+                    </TableBody>
+                </Table>
+            </div>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 };
