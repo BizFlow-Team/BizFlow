@@ -5,7 +5,7 @@ export const generateToken = (userId, res) => {
     const secret = process.env.JWT_SECRET_KEY; 
 
     if (!secret) {
-        console.log("❌ Lỗi: Không tìm thấy JWT_SECRET_KEY trong môi trường!");
+        console.log("Lỗi: Không tìm thấy JWT_SECRET_KEY trong môi trường!");
         throw new Error('JWT_SECRET is not configured');
     }
 
@@ -16,8 +16,8 @@ export const generateToken = (userId, res) => {
     res.cookie('jwt', token, {
         maxAge: 7 * 24 * 60 * 60 * 1000, // 7 days
         httpOnly: true,
-        sameSite: 'strict',
-        secure: process.env.NODE_ENV === 'production', 
+        sameSite: 'lax',
+        secure: false,
     });
 
     return token;
