@@ -1,8 +1,12 @@
 import 'package:flutter/material.dart';
 import 'login_screen.dart';
-import 'report_screen.dart';    // Màn hình Báo cáo
-import 'inventory_screen.dart'; // Màn hình Kho hàng
-import 'customers_screen.dart'; // Màn hình Khách hàng & Sổ nợ
+
+// --- IMPORT ĐẦY ĐỦ CÁC MÀN HÌNH ---
+import 'sales_screen.dart';      // Màn hình Bán hàng (POS)
+import 'order_screen.dart';      // Màn hình Danh sách Đơn hàng
+import 'inventory_screen.dart';  // Màn hình Kho hàng
+import 'customers_screen.dart';  // Màn hình Khách hàng & Sổ nợ
+import 'report_screen.dart';     // Màn hình Báo cáo
 
 class DashboardScreen extends StatelessWidget {
   final String userName;
@@ -15,13 +19,13 @@ class DashboardScreen extends StatelessWidget {
       backgroundColor: Colors.grey[100],
       appBar: AppBar(
         title: const Text("BizFlow Dashboard"),
-        backgroundColor: const Color(0xFF1E293B),
+        // Đã đổi màu thành xanh dương sáng như ảnh
+        backgroundColor: const Color(0xFF2196F3),
         elevation: 0,
         actions: [
           IconButton(
             icon: const Icon(Icons.logout),
             onPressed: () {
-              // Lệnh quay về màn hình Đăng nhập
               Navigator.pushReplacement(
                 context,
                 MaterialPageRoute(builder: (context) => LoginScreen()),
@@ -37,7 +41,8 @@ class DashboardScreen extends StatelessWidget {
             width: double.infinity,
             padding: const EdgeInsets.all(20),
             decoration: const BoxDecoration(
-              color: Color(0xFF1E293B),
+              // Đã đổi màu thành xanh dương sáng như ảnh
+              color: Color(0xFF2196F3),
               borderRadius: BorderRadius.only(
                 bottomLeft: Radius.circular(30),
                 bottomRight: Radius.circular(30),
@@ -76,12 +81,23 @@ class DashboardScreen extends StatelessWidget {
                 crossAxisSpacing: 15,
                 mainAxisSpacing: 15,
                 children: [
-                  // --- NÚT ĐƠN HÀNG (Chưa làm) ---
-                  _buildMenuCard(context, "Đơn hàng", Icons.shopping_cart, Colors.orange, () {
-                    _showFeatureMessage(context, "Tính năng Đơn hàng đang phát triển");
+                  // 1. NÚT BÁN HÀNG (Màn hình POS)
+                  _buildMenuCard(context, "Bán hàng", Icons.point_of_sale, Colors.green, () {
+                    Navigator.push(
+                      context,
+                      MaterialPageRoute(builder: (context) => const SalesScreen()),
+                    );
                   }),
 
-                  // --- NÚT SẢN PHẨM / KHO HÀNG (Đã kết nối) ---
+                  // 2. NÚT ĐƠN HÀNG (Lịch sử đơn)
+                  _buildMenuCard(context, "Đơn hàng", Icons.assignment, Colors.orange, () {
+                    Navigator.push(
+                      context,
+                      MaterialPageRoute(builder: (context) => const OrderScreen()),
+                    );
+                  }),
+
+                  // 3. NÚT SẢN PHẨM (Kho hàng)
                   _buildMenuCard(context, "Sản phẩm", Icons.inventory_2, Colors.green, () {
                      Navigator.push(
                       context,
@@ -89,15 +105,7 @@ class DashboardScreen extends StatelessWidget {
                     );
                   }),
 
-                  // --- NÚT CÔNG NỢ (Đã kết nối) ---
-                  _buildMenuCard(context, "Công nợ", Icons.account_balance_wallet, Colors.red, () {
-                      Navigator.push(
-                      context,
-                      MaterialPageRoute(builder: (context) => const CustomersScreen()),
-                    );
-                  }),
-
-                  // --- NÚT KHÁCH HÀNG (Đã kết nối) ---
+                  // 4. NÚT KHÁCH HÀNG & CÔNG NỢ (Gộp chung)
                   _buildMenuCard(context, "Khách hàng", Icons.people, Colors.purple, () {
                       Navigator.push(
                       context,
@@ -105,7 +113,7 @@ class DashboardScreen extends StatelessWidget {
                     );
                   }),
                   
-                  // --- NÚT BÁO CÁO (Đã kết nối) ---
+                  // 5. NÚT BÁO CÁO (Biểu đồ)
                   _buildMenuCard(context, "Báo cáo", Icons.bar_chart, Colors.blue, () {
                     Navigator.push(
                       context,
@@ -113,7 +121,7 @@ class DashboardScreen extends StatelessWidget {
                     );
                   }),
                   
-                  // --- NÚT AI (Chưa làm) ---
+                  // 6. NÚT AI (Tính năng chờ)
                   _buildMenuCard(context, "AI Assistant", Icons.psychology, Colors.indigo, () {
                      _showFeatureMessage(context, "Trợ lý AI đang sẵn sàng...");
                   }),
